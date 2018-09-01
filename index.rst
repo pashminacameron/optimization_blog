@@ -1,0 +1,37 @@
+
+.. Optimization blog index file, created by `ablog start` on Sun Jul 29 12:23:17 2018.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
+
+Pashmina's Blog
+=============================
+
+RSE 2018 talk  *Fast code with just enough effort*: :download:`pdf <docs/RSE2018Talk.pdf>`. 
+
+Further analysis can be found at:
+
+ - :ref:`python`
+ - :ref:`cpp`
+
+ In future, we may look at 
+
+ - effect of cache sizes and cache misses
+ - ARM assembly starter examples
+ - custom hardware accelerators
+
+
+.. postlist:: 0
+   :excerpts:
+
+
+.. `toctree` directive, below, contains list of non-post `.rst` files.
+   This is how they appear in Navigation sidebar. Note that directive
+   also contains `:hidden:` option so that it is not included inside the page.
+
+   Posts are excluded from this directive so that they aren't double listed
+   in the sidebar both under Navigation and Recent Posts.
+
+.. toctree::
+   :hidden:
+
+   about.rst

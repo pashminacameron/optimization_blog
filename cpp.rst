@@ -1,0 +1,140 @@
+
+.. Optimization blog post created on Jul 29, 2018.
+
+.. post:: Jul 29, 2018
+   :tags: atag
+   :author: Pashmina Cameron
+
+Optimizing C++
+====================
+
+Discussion on Cholesky decomposition in C++
+
+We used Windows Subsystem of Linux (WSL) to do the benchmarking. There are some differences with respect to pure Linux machines, which we outline where they exist. All code used in these examples is available at `Github <github.com/pashminacameron/cholesky_benchmarking>`_ 
+
+*****************
+Algorithm choice
+*****************
+There are two variants of Cholesky decomposition: :code:`LL^T` and :code:`LDL^T`. We use the :code:`LL^T` variant here, except where outlined, to compare it to :code:`LDL^T` variant.
+
+We will review the following variants of the same algorithm
+
+1. C++ with -O3 optimization
+2. C++ with -O3 and -ffast-math optimization
+3. C++ with BLAS (single threaded)
+4. AVX  
+5. Eigen without MKL
+6. MKL LAPACK (single threaded)
+7. MKL LAPACK (multi-threaded)
+8. CUDA
+
+We use LAPACK, Eigen and CUDA implementations to set ourselves a target, rather than to evaluate them. The aim here is to see how far we can go from a pure C++ implementation to AVX one.  
+
+.. image:: images/cpp-graphs.png
+    :width: 800px
+    :align: center
+    :alt: alternate text
+
+**********************
+Conclusion
+**********************
+- Without changing the basic Cholesky algorithm (i.e. using more efficient block-wise or recursive algorithms), SIMD instructions (AVX and higher) provide the best performance. After this point, speed gains can only be made using better algorithms. Similar perfomance may be achieved without writing SIMD intrinsics, by using :code:`-ffast-math` instead, but see :ref:`compiler_opt` for a discussion of the cost involved in going down this route. 
+- Single threaded BLAS routines plugged in place of hand-written intrinsics show similar performance, suggesting that the handwritten intrinsics are optimal. 
+- Eigen is great for small fixed-size matrices. Eigen (without MKL) has efficient linear algebra algorithms. Use them where you can. 
+- LAPACK, as expected provide the best performance on CPU-only sytems. LAPACK achieves it's performance from a combination of SIMD instructions, efficient data layout and efficient algorithms. LAPACK uses multiple threads if possible, and that can further boost performance. Similar speed gains can be made by using multiple threads for C++ or AVX code. 
+- If you have access to a GPU, CUDA gives the best performance at large matrix sizes. A large fraction of the time is spent in data transfer, so it is worth chaining operations in order to minimize the trips to/from GPU. 
+
+
+*************
+Turbo Boost
+*************
+Turbo Boost was disabled by following instructions `here <https://www.tautvidas.com/blog/2011/04/disabling-intel-turbo-boost/>`_. With Turbo Boost enabled  (which is the default), timings are not consistent because the CPU clock frequency changes (as per temperature of the machine). Anaconda uses Intel MKL and I have not tested this on an ARM processor. All timings were taken in Ubuntu 18.04 (Windows Subsystem for Linux). To verify that Turbo Boost is off, you may find it useful to download Intel extreme tuning utility and check that the Max Core Frequency stays roughly constant when running benchmarks.
+
+*************
+numactl
+*************
+
+Intel MKL uses as many threads as there are physical cores on a machine by default. This behaviour can be controlled by setting :code:`MKL_NUM_THREADS` or :code:`OMP_NUM_THREADS`, read by MKL in that order, or by tying down the process to specific cores on a machine. :code:`numactl` allows you to do the latter. Use :code:`numactl -C 0 ./testCholesky` to run the process on a single core, (only core 0 is accessible on WSL), and then use :code:`top` to verify that this is happening. WSL apparently only uses a single core, but I did manage to see 200% CPU usage without any of the above measures (for a machine with 2 physical cores).  
+
+.. _compiler_opt: 
+
+*****************************
+Compiler options
+*****************************
+
+Compiler options can make quite a difference in the speed (as well as size and behaviour) of the code. :code:`-O2` is the highest level of optimization you can request without sacrificing safety of the code. Going from :code:`-O2` to :code:`-O3` shows very little gain in speed, but adding :code:`-ffast-math` (which turns on :code:`-O3`)does improve the speed noticeably. However, this comes at a cost.  
+
+.. image:: images/cpp-compileroptions.png
+    :width: 800px
+    :align: center
+    :alt: alternate text
+
+:code:`-ffast-math` essentially turns on unsafe math optimizations and the changes due to this compiler option can propagate to the code that may link against your code in future (see Note of -ffast-math in References). While this option does make your code faster, it is very important that you understand the implications of turning it on and if possible, mitigate against it. A safer option that gives similar performance is to use either function-specific optimization (see :ref:`selective_opt`) or write some intrinsics or assembly to optimize just the bottlenecks rather than letting the compiler play wreak havoc on all of your code (and your downstream dependencies). We see from the graph below that AVX code performs better than the :code:`-ffast-math` code and is also safer. This is definitely a case in which the effort of writing SIMD intrinsics is  worth it. 
+
+.. image:: images/cpp-compileroptions-safety-speed.png
+    :width: 800px
+    :align: center
+    :alt: alternate text
+
+*****************************
+Best case limits for SIMD
+*****************************
+
+Both Intel and ARM provide information on latency and throughput of each of their SIMD instructions. See for example, here, a screenshot of the Intel intrinsics guide. 
+
+.. image:: images/cpp-assemblyguide.png
+    :width: 800px
+    :align: center
+    :alt: alternate text
+
+Looking these numbers up is a good way to choose between instructions and also determine whether or not it is worth coding up an intrinsics/assembly version of your code. For example, if the instruction you need is not available, and you have to use multiple instructions to get your work done, it may not actually speed up your code. You may have to redesign your algorithm.
+
+************************************
+Debugging auto generated assembly
+************************************
+
+Sometimes, you write intrinsics and you don't get the expected speedup. In such cases, it could be that the compiler is not generating the assembly code you were hoping for. You can look at the disassembly and find out if this is the case. For example, this is the disassembly for add_avx function compiled with GCC 4.9 and GCC 5.4. GCC 5.4 unrolled the loop, whereas GCC 4.9 didn't, hence the same code compiled with GCC 4.9 was slower. 
+
+.. image:: images/cpp-debugging-assembly.png
+    :width: 800px
+    :align: center
+    :alt: alternate text
+
+Of course, it's always best to upgrade to a newer compiler, if you have the freedom to do so. If you can't change the compiler, then you may want to just write the assembly yourself (rather than use intrinsics), but if you have sufficient knowledge to write the assembly, you can get away by copying the assembly from the disassembly and then modifying it to use correct registers and so on. This would allow you to bypass the compiler asm doing the wrong conversion from intrinsics to assembly.
+
+Handwritten intrinsics generally produce much more compact assembly code. Compiler's auto-vectorized code contains a lot of no-ops and jumps. For example, the pairwise product AVX function in Cholesky example lead to 40 lines of assembly, whereas the C++ -O3 version lead to 220 lines of assembly. The more assembly there is, the harder it is to debug!
+
+.. _selective_opt:
+
+*****************************
+Selective optimizations
+*****************************
+GCC provides a :code:`pragma` to selectively optimize a function, i.e. change the compiler flags for a single function at a time. The compile string does not show the actual flags used as those are only printed on a per file basis when calling cmake or make. These flags are, therefore invisible, and hence a little dangerous, but the option is there, should you want to change compiler flags for selected functions. A better way of doing this may be to move code that needs to be optimized to a separate file and changing the compiler flags for just that file. That way the flags will be available for inspection (while allowing the benefit of optimization without polluting other compilation units). 
+
+.. code-block:: guess
+
+    #pragma GCC push_options
+    #pragma GCC optimize ("-ffast-math")
+    void functionToOptimize(const float * in, float * out)
+    {
+          ...
+    }
+    #pragma GCC pop_options
+
+WSL does not report the existance of AVX2 and a few other variants of Intel instruction sets via :code:`cat /proc/cpuinfo`, so you would need to check the Intel processor specifications to determine whether a particular instruction set is available.
+
+*****************************
+References
+*****************************
+
+- `Intel intrinsics guide <https://software.intel.com/sites/landingpage/IntrinsicsGuide/>`_
+- `Importance of packing and alignment <http://www.catb.org/esr/structure-packing/>`_ 
+- `Tutrial on AVX/AVX2 <https://www.codeproject.com/Articles/874396/Crunching-Numbers-with-AVX-and-AVX>`_ 
+- `Note on –ffast-math <http://www.pointclouds.org/news/2011/08/29/ffast-math/>`_ 
+- `Mark Harris’ CUDA introduction <https://devblogs.nvidia.com/even-easier-introduction-cuda/>`_
+- `2017 A. M. Turing award talk <https://www.youtube.com/playlist?list=PL3MXnVUbT1wTZ7Ud-7vh7k-8x2QOiwrI8>`_ by Dr. David Patterson & Dr. John Hennessy
+- `Introduction to ARM NEON intrinsics <http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0348b/BABIIBBG.html>`_
+- `ARM NEON intrinsics guide <http://infocenter.arm.com/help/topic/com.arm.doc.ihi0073b/IHI0073B_arm_neon_intrinsics_ref.pdf>`_
+
+
+
