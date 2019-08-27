@@ -19,7 +19,7 @@ import alabaster
 #blog_path = 'blog'
 
 # The "title" for the blog, used in active pages.  Default is ``'Blog'``.
-blog_title = u'Optimization blog Blog'
+blog_title = u'Pashmina Cameron\'s blog'
 
 #base url for github pages to be rendered
 github_pages = 'pashminacameron'
@@ -185,7 +185,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'Optimization blog'
+project = u'Pashmina\'s blog'
 copyright = u'2018, Pashmina Cameron'
 author = u'Pashmina Cameron'
 
